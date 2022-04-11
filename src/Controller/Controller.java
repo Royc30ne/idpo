@@ -1,4 +1,8 @@
+package Controller;
+
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -17,13 +21,24 @@ public class Controller {
     }
 
     public void startController() {
-        ServerSocket serverSocket = new ServerSocket(cport);
+        try {
+            System.out.println("DStore server starting...");
+            ServerSocket serverSocket = new ServerSocket(cport);
+            System.out.println("Waiting for Connection");
 
-        while(true) {
-            Socket client = serverSocket.accept();
+            while(true) {
+                Socket client = serverSocket.accept();
+                System.out.print("Client: " + serverSocket.getInetAddress().getLocalHost() + " has connected to DS server.");
+                
+                BufferedReader bf = new BufferedReader(new InputStreamReader(client.getInputStream()));
 
-            client.close();
-            break;
+                client.close();
+                break;
+            }
+
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
         }
     }
 
