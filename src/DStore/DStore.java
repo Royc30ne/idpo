@@ -55,8 +55,11 @@ public class DStore {
                             
                             if(readline != null) {
                                 String[] splits = readline.split(" ");
-                                var command = splits[0];
+                                var command = splits[0].trim();
                                 
+                                if(command.equals(Protocal.JOIN_SUCCESS_TOKEN)) {
+                                    System.out.println("Successfully build connection with Controller");
+                                }
 
                             }
                         } catch (IOException e) {

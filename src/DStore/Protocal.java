@@ -37,6 +37,8 @@ public class Protocal {
     
     public static final String JOIN_TOKEN = "JOIN";
     
+    public static final String JOIN_SUCCESS_TOKEN = "JOIN_SUCCESS";
+    
     public static final String REBALANCE_STORE_TOKEN = "REBALANCE_STORE";
     
     public static final String REBALANCE_COMPLETE_TOKEN = "REBALANCE_COMPLETE";
