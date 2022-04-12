@@ -1,17 +1,18 @@
-package Controller;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ConcurrentHashMap;
 
 
 public class Controller {
     private final int cport;
     private final int r;
     private final int timeout;
-    private final int rebalanced_period;
+    private final int rebalanced_period; 
+    private ConcurrentHashMap<String, String> file_index; 
 
     public Controller(int cport, int r, int timeout, int rebalanced_period) {
         this.cport = cport;
@@ -30,16 +31,45 @@ public class Controller {
                 Socket client = serverSocket.accept();
                 System.out.print("Client: " + serverSocket.getInetAddress().getLocalHost() + " has connected to DS server.");
                 
-                BufferedReader bf = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                new Thread(() -> {
+                    try {
+                        BufferedReader clinetRead = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                        PrintWriter clientWrite = new PrintWriter(client.getOutputStream(), true);
 
-                client.close();
-                break;
+                        String clientInput = null;
+
+                        while(true) {
+                            clientInput = clinetRead.readLine().trim();
+                            System.out.println(clientInput);
+
+                            if (clientInput != null){
+                                String[] commands = clientInput.split(" ");
+
+                                if (commands[0].equals(Protocal.LIST_TOKEN)) {
+                                    clientWrite.println(clientList());
+                                }
+                            }
+                        }
+
+                    } catch (IOException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    }
+                }).start();
             }
 
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
+    }
+
+    private String clientList() {
+        return Protocal.LIST_TOKEN + " testfile";
+    }
+
+    private void clientStore() {
+
     }
 
     public static void main(String[] args) {

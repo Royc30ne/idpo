@@ -1,7 +1,3 @@
-package Controller;
-
-import Controller.Logger.LoggingType;
-
 public class ControllerLogger extends Logger{
 
     protected ControllerLogger(Logger.LoggingType loggingType) {
