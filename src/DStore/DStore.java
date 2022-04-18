@@ -1,9 +1,11 @@
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -179,10 +181,42 @@ public class DStore {
                                 break;
                             }
 
+                            //Done. Close all connections
                             fos.flush();
                             fos.close();
                             client.close();
                             return;
+                        } 
+                        
+                        //COMMAND: LOAD_DATA
+                        else if(command.equals(Protocal.LOAD_DATA_TOKEN)) {
+                            if(commands.length != 2) {
+                                System.err.println("Wrong LOAD_DATA command");
+                                continue;
+                            } 
+                            
+                            String fileName = commands[1];
+                            File file = new File(filePath + File.separator + fileName);
+                            if(!file.exists() || !file.isFile()) {
+                                System.err.println("File Not Exists");
+                                client.close();
+                                return;
+                            }
+                            FileInputStream fileStream = new FileInputStream(file);
+                            OutputStream sendStream = client.getOutputStream();
+                            sendStream.write(fileStream.readAllBytes());
+
+                            //Done. Close all connections
+                            sendStream.flush();
+                            fileStream.close();
+                            sendStream.close();
+                            client.close();
+                            return;
+                        } 
+                        
+                        else {
+                            System.err.println("Unknown Command");
+                            continue;
                         }
                     }
                 }

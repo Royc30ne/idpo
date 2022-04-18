@@ -43,9 +43,12 @@ public class Controller {
     private final int rebalanced_period; 
     private AtomicInteger countDStore = new AtomicInteger(0); // count number of connected dstores
     private AtomicBoolean dStoreReady = new AtomicBoolean(false);
-    private ConcurrentHashMap<String, FileState> fileIndex = new ConcurrentHashMap<>(); //Index of file with state
+    private ConcurrentHashMap<String, ArrayList<Integer>> validLoadPorts = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<String, FileState> fileStateIndex = new ConcurrentHashMap<>(); //Index of file with state
+    private ConcurrentHashMap<String, Integer> fileSizeIndex = new ConcurrentHashMap<>(); //Index of stored file with filesize
     private ConcurrentHashMap<Integer, Socket> dStoreConnections = new ConcurrentHashMap<>(); //Bind client socket with dstore port
     private ConcurrentHashMap<String, Integer> ackReceive = new ConcurrentHashMap<>(); //Count received acks for each file
+    private ConcurrentHashMap<Integer, Integer> dStoreLoad = new ConcurrentHashMap<>();
 
     public Controller(int cport, int r, int timeout, int rebalanced_period) {
         this.cport = cport;
@@ -121,7 +124,7 @@ public class Controller {
                                     }
 
                                     //COMMAND: STORE
-                                    if (commands[0].equals(Protocal.STORE_TOKEN)) {
+                                    else if (commands[0].equals(Protocal.STORE_TOKEN)) {
                                         //Check length of STORE command from Client
                                         if (commands.length != 3) {
                                             //TODO: Add Log
@@ -138,22 +141,23 @@ public class Controller {
                                         Integer fileSize = Integer.parseInt(commands[2]);
 
                                         //If fileName duplicates
-                                        if (fileIndex.containsKey(fileName)) {
+                                        if (fileStateIndex.containsKey(fileName)) {
                                             clientWrite.println(Protocal.ERROR_FILE_ALREADY_EXISTS_TOKEN);
                                             continue;
                                         }
                                         
-                                        fileIndex.put(fileName, FileState.STORE_IN_PROGRESS);
+                                        fileStateIndex.put(fileName, FileState.STORE_IN_PROGRESS);
                                         ackReceive.put(fileName, 0);
                                         clientWrite.println(Protocal.STORE_TO_TOKEN + listExistPort());
                                         boolean storeComplete = false;
-                                        
+
                                         //Timeout Setting
                                         while(System.currentTimeMillis() <= System.currentTimeMillis() + timeout) {
                                             if(ackReceive.get(fileName) >= r) {
                                                 clientWrite.println(Protocal.STORE_COMPLETE_TOKEN);
-                                                fileIndex.remove(fileName);
-                                                fileIndex.put(fileName, FileState.STORE_COMPLETE);
+                                                fileStateIndex.remove(fileName);
+                                                fileStateIndex.put(fileName, FileState.STORE_COMPLETE);
+                                                fileSizeIndex.put(fileName, fileSize);
                                                 storeComplete = true;
                                                 break;
                                             }
@@ -166,7 +170,48 @@ public class Controller {
                                         ackReceive.remove(fileName);
                                     }
                                     
-                                    
+                                    //COMMAND: LOAD && RELOAD
+                                    else if (commands[0].equals(Protocal.LOAD_TOKEN) || commands[0].equals(Protocal.RELOAD_TOKEN)) {
+                                        String fileName;
+                                        //Check length of LOAD command from Client
+                                        if (commands.length != 2) {
+                                            System.err.println("Unknow commands: " + commands);
+                                            continue;
+                                        }
+
+                                        //Check file exists
+                                        fileName = commands[1];
+                                        if (fileStateIndex.containsKey(fileName) && fileStateIndex.get(fileName) == FileState.STORE_COMPLETE) {
+                                            clientWrite.println(Protocal.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
+                                        } else {
+                                            clientWrite.println(Protocal.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                                            continue;
+                                        }
+
+                                        //Response to Client: LOAD_FROM port filesize
+                                        if (commands[0].equals(Protocal.LOAD_TOKEN)) {
+                                            //Remove last load operation from the list
+                                            if (validLoadPorts.contains(fileName)) {
+                                                validLoadPorts.remove(fileName);
+                                            }
+
+                                            ArrayList<Integer> portArray = new ArrayList<>();
+                                                for(Integer i : dStoreConnections.keySet()) {
+                                                    portArray.add(i);
+                                                }
+                                            validLoadPorts.put(fileName, portArray);
+                                            clientWrite.println(Protocal.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
+                                        } else {
+                                            validLoadPorts.get(fileName).remove(0);
+                                            if(validLoadPorts.get(fileName) == null) {
+                                                //Cannot connect to any port
+                                                clientWrite.println(Protocal.ERROR_LOAD_TOKEN);
+                                            } else {
+                                                clientWrite.println(Protocal.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
+                                            }
+                                        }
+
+                                    }
                                 } 
                                 
                                 //Operations with Client (DStore aren't totally connected)
@@ -239,6 +284,11 @@ public class Controller {
             list += Integer.toString(port) + " ";
         }
         return list;
+    }
+
+    private Integer chooseLoadPort(String fileName) {
+        var port = validLoadPorts.get(fileName).get(0);
+        return port;
     }
 
     private String clientList() {
