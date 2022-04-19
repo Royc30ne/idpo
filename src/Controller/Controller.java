@@ -14,7 +14,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Controller {
     private enum FileState{
         STORE_IN_PROGRESS,
-        STORE_COMPLETE
+        STORE_COMPLETE,
+        REMOVE_IN_PROGRESS,
+        REMOVE_COMPLETE
     }
     public class Client {
         Integer port;
@@ -48,6 +50,7 @@ public class Controller {
     private ConcurrentHashMap<String, Integer> fileSizeIndex = new ConcurrentHashMap<>(); //Index of stored file with filesize
     private ConcurrentHashMap<Integer, Socket> dStoreConnections = new ConcurrentHashMap<>(); //Bind client socket with dstore port
     private ConcurrentHashMap<String, Integer> ackReceive = new ConcurrentHashMap<>(); //Count received acks for each file
+    private ConcurrentHashMap<String, Integer> ackRemove = new ConcurrentHashMap<>();
     private ConcurrentHashMap<Integer, Integer> dStoreLoad = new ConcurrentHashMap<>();
 
     public Controller(int cport, int r, int timeout, int rebalanced_period) {
@@ -120,7 +123,22 @@ public class Controller {
                                     //----------Client----------
                                     //COMMAND: LIST
                                     if (commands[0].equals(Protocal.LIST_TOKEN)) {
-                                        clientWrite.println(clientList());
+                                        if(commands.length != 1) {
+                                            System.err.println("Wrong List COMMAND");
+                                            continue;
+                                        }
+
+                                        if (fileSizeIndex.keySet().size() == 0) {
+                                            clientWrite.println(Protocal.LIST_TOKEN);
+                                        } 
+
+                                        else {
+                                            String file_list = "";
+                                            for(String i : fileSizeIndex.keySet()) {
+                                            file_list = file_list + " " + i;
+                                            }
+                                            clientWrite.println(Protocal.LIST_TOKEN + " " + file_list);
+                                        }
                                     }
 
                                     //COMMAND: STORE
@@ -212,6 +230,48 @@ public class Controller {
                                         }
 
                                     }
+
+                                    //COMMAND: REMOVE
+                                    else if (commands[0].equals(Protocal.REMOVE_TOKEN)) {
+                                        if (commands.length != 2) {
+                                            System.err.println("Wrong REMOVE command");
+                                            continue;
+                                        }
+                                        
+                                        String fileName = commands[1];
+                                        if (!fileSizeIndex.contains(fileName)) {
+                                            clientWrite.println(Protocal.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                                            continue;
+                                        } 
+                                        
+                                        //Update Index
+                                        fileSizeIndex.remove(fileName);
+                                        fileStateIndex.remove(fileName);
+                                        fileStateIndex.put(fileName, FileState.REMOVE_IN_PROGRESS);
+
+                                        for(Socket i : dStoreConnections.values()) {
+                                            PrintWriter sendMsg = new PrintWriter(i.getOutputStream(), true);
+                                            sendMsg.println(Protocal.REMOVE_TOKEN);
+                                        }
+
+                                        ackRemove.put(fileName, 0);
+                                        boolean removeComplete = false;
+                                        while(System.currentTimeMillis() <= System.currentTimeMillis() + timeout ) {
+                                            if (ackRemove.get(fileName) == r) {
+                                                fileStateIndex.remove(fileName);
+                                                fileStateIndex.put(fileName, FileState.REMOVE_COMPLETE);
+                                                removeComplete = true;
+                                                clientWrite.println(Protocal.REMOVE_COMPLETE_TOKEN);
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (!removeComplete) {
+                                            System.err.println("REMOVE timeout. File: " + fileName);
+                                        }
+                                        ackRemove.remove(fileName);
+                                    }
+
                                 } 
                                 
                                 //Operations with Client (DStore aren't totally connected)

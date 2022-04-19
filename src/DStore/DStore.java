@@ -105,13 +105,37 @@ public class DStore {
                 while(true) {
                         readline = readMsg.readLine().trim();
                         if(readline != null) {
-                            String[] splits = readline.split(" ");
-                            var command = splits[0].trim();
+                            String[] commands = readline.split(" ");
+                            var command = commands[0].trim();
 
                             //COMMAND: JOIN
                             if(command.equals(Protocal.JOIN_SUCCESS_TOKEN)) {
                                 controllerConnected = true;
                                 System.out.println("Successfully build connection with Controller");
+                            }
+                            
+                            //COMMAND: REMOVE
+                            else if (command.equals(Protocal.REMOVE_TOKEN)) {
+                                if(commands.length != 2) {
+                                    System.err.println("Wrong REMOVE command");
+                                    continue;
+                                }
+                                
+                                String fileName = commands[1];
+                                File file = new File(filePath + File.separator + fileName);
+                                if(!file.exists() || !file.isFile()) {
+                                    System.err.println("File not exists");
+                                    sendMsg.println(Protocal.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
+                                } 
+                                
+                                if(file.delete()) {
+                                    sendMsg.println(Protocal.REMOVE_ACK_TOKEN + " " + fileName);
+                                }
+                            }
+
+                            else {
+                                System.err.println("Unknown command!");
+                                continue;
                             }
                         }
 
@@ -213,7 +237,7 @@ public class DStore {
                             client.close();
                             return;
                         } 
-                        
+
                         else {
                             System.err.println("Unknown Command");
                             continue;

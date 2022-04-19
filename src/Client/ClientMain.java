@@ -105,7 +105,8 @@ public class ClientMain {
 			if (list != null)
 				for (String filename : list)
 					try { client.remove(filename); } catch(IOException e) { e.printStackTrace(); }
-			try { client.remove(list[0]); } catch(IOException e) { e.printStackTrace(); }
+			try { clie
+				nt.remove(list[0]); } catch(IOException e) { e.printStackTrace(); }
 			
 			try { list(client); } catch(IOException e) { e.printStackTrace(); }
 			
