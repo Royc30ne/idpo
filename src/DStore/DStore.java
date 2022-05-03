@@ -44,21 +44,21 @@ public class DStore {
             Socket controller = new Socket(InetAddress.getByName("localhost"), cport);
             System.out.println("Controller Connected.\nPort: " + cport);
             
-            new ControllerThread(controller).start();
+            // new ControllerThread(con troller).start();
+            new Thread(new ControllerThread(controller)).start();
 
-            if (!controllerConnected) {
-                return;
-            } 
+            // if (!controllerConnected) {
+            //     return;
+            // } 
+
+            System.out.println("Ready for Clinet Thread");
+            ServerSocket serverSocket = new ServerSocket(port);
             
-            try {
-                ServerSocket serverSocket = new ServerSocket(port);
-                while(true) {
-                    Socket client = serverSocket.accept();
-                    new ClientThread(client, controller).start();
-                }
-
-            } catch (Exception e) {
-                e.printStackTrace();
+            while(true) {
+                System.out.println("Waiting for Client to Join!");
+                Socket client = serverSocket.accept();
+                new Thread(new ClientThread(client, controller)).start();
+                // new ClientThread(client, controller);
             }
 
         } catch (IOException e) {
@@ -105,6 +105,7 @@ public class DStore {
                 while(true) {
                         readline = readMsg.readLine().trim();
                         if(readline != null) {
+                            System.out.println("Controller Thread--" + readline);
                             String[] commands = readline.split(" ");
                             var command = commands[0].trim();
 
@@ -146,12 +147,6 @@ public class DStore {
             }
         }
 
-        public void start() {
-            System.out.println("Controller Thread Start");
-            controllerThread = new Thread(this, "Controller Thread");
-            controllerThread.start();
-        }
-
     }
 
     /**
@@ -181,7 +176,7 @@ public class DStore {
                     if(commandLine != null) {
                         String[] commands = commandLine.split(" ");
                         String command = commands[0].trim();
-                        System.out.println("Client Command: " + command);
+                        System.out.println("Client Thread--" + commandLine);
                         
                         //COMMAND: STORE
                         if(command.equals(Protocal.STORE_TOKEN)) {
@@ -248,12 +243,6 @@ public class DStore {
             } catch (Exception e) {
                 e.printStackTrace();
             } 
-        }
-
-        public void start() {
-            System.out.println("Client Thread Start.");
-            clientThread = new Thread(this, "Client Thread");
-            clientThread.start();
         }
         
     }

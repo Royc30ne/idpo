@@ -123,6 +123,7 @@ public class Controller {
                                     //----------Client----------
                                     //COMMAND: LIST
                                     if (commands[0].equals(Protocal.LIST_TOKEN)) {
+
                                         if(commands.length != 1) {
                                             System.err.println("Wrong List COMMAND");
                                             continue;
@@ -134,8 +135,9 @@ public class Controller {
 
                                         else {
                                             String file_list = "";
+                                            showFileStateIndex();
                                             for(String i : fileSizeIndex.keySet()) {
-                                            file_list = file_list + " " + i;
+                                                file_list = file_list + " " + i;
                                             }
                                             clientWrite.println(Protocal.LIST_TOKEN + " " + file_list);
                                         }
@@ -166,7 +168,8 @@ public class Controller {
                                         
                                         fileStateIndex.put(fileName, FileState.STORE_IN_PROGRESS);
                                         ackReceive.put(fileName, 0);
-                                        clientWrite.println(Protocal.STORE_TO_TOKEN + listExistPort());
+                                        clientWrite.println(Protocal.STORE_TO_TOKEN + " " + listExistPort());
+                                        System.out.print(Protocal.STORE_TO_TOKEN + " " + listExistPort());
                                         boolean storeComplete = false;
 
                                         //Timeout Setting
@@ -351,12 +354,8 @@ public class Controller {
         return port;
     }
 
-    private String clientList() {
-        return Protocal.LIST_TOKEN + " testfile";
-    }
-
-    private void clientStore() {
-
+    private void showFileStateIndex() {
+        System.out.print(fileStateIndex.toString());
     }
 
     public static void main(String[] args) {
