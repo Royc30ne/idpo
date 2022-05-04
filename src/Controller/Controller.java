@@ -18,26 +18,7 @@ public class Controller {
         REMOVE_IN_PROGRESS,
         REMOVE_COMPLETE
     }
-    public class Client {
-        Integer port;
-        Socket socket;
-        PrintWriter clientWrite;
-
-        public Client(Integer port, Socket socket) {
-            this.port = port;
-            this.socket = socket;
-        }
-        
-        public void sendClientMsg(String msg) {
-            try {
-                PrintWriter clientWrite = new PrintWriter(socket.getOutputStream(), true);
-                clientWrite.println(msg);
-            } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-        }
-    }
+    
     private Client currentClient = null;
     private final int cport;
     private final int r;
@@ -45,6 +26,7 @@ public class Controller {
     private final int rebalanced_period; 
     private AtomicInteger countDStore = new AtomicInteger(0); // count number of connected dstores
     private AtomicBoolean dStoreReady = new AtomicBoolean(false);
+    List<DStore> dstoresList = Collections.synchronizedList(new ArrayList<DStore>());
     private ConcurrentHashMap<String, ArrayList<Integer>> validLoadPorts = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String, FileState> fileStateIndex = new ConcurrentHashMap<>(); //Index of file with state
     private ConcurrentHashMap<String, Integer> fileSizeIndex = new ConcurrentHashMap<>(); //Index of stored file with filesize
@@ -98,8 +80,8 @@ public class Controller {
                                         break;
                                     }
                                     
-                                    //
                                     isDStore = true;
+                                    dstoresList.add(new DStore(currentDStorePort, client));
                                     dStoreConnections.put(currentDStorePort, client);
                                     countDStore.incrementAndGet();
                                     currentDStorePort = Integer.parseInt(commands[1]);
@@ -168,8 +150,8 @@ public class Controller {
                                         
                                         fileStateIndex.put(fileName, FileState.STORE_IN_PROGRESS);
                                         ackReceive.put(fileName, 0);
-                                        clientWrite.println(Protocal.STORE_TO_TOKEN + " " + listExistPort());
-                                        System.out.print(Protocal.STORE_TO_TOKEN + " " + listExistPort());
+                                        clientWrite.println(Protocal.STORE_TO_TOKEN + listExistPort());
+                                        System.out.print(Protocal.STORE_TO_TOKEN + listExistPort());
                                         boolean storeComplete = false;
 
                                         //Timeout Setting
@@ -344,7 +326,7 @@ public class Controller {
         String list = "";
         for (Integer port : dStoreConnections.keySet())
         {
-            list += Integer.toString(port) + " ";
+            list += " " + Integer.toString(port);
         }
         return list;
     }
@@ -362,4 +344,48 @@ public class Controller {
         Controller controller = new Controller(Integer.parseInt(args[0]), Integer.parseInt(args[1]),  Integer.parseInt(args[2]), Integer.parseInt(args[3]));
         controller.startController();
     }
+
+    public class Client {
+        Integer port;
+        Socket socket;
+        PrintWriter clientWrite;
+
+        public Client(Integer port, Socket socket) {
+            this.port = port;
+            this.socket = socket;
+            clientWrite = new PrintWriter(socket.getOutputStream(), true);
+        }
+        
+        public void sendClientMsg(String msg) {
+            try {
+                clientWrite.println(msg);
+            } catch (IOException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public class DStore {
+        Integer port;
+        Socket socket;
+        PrintWriter dstoreWrite;
+
+        public DStore(Integer port, Socket socket) {
+            this.port = port;
+            this.socket = socket;
+            dstoreWrite = new PrintWriter(socket.getOutputStream(), true);
+        }
+
+        public void sendDStoreMsg(String msg) {
+            try {
+                dstoreWrite.println(msg);
+            } catch (IOException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
+    }
+    
+
 }
