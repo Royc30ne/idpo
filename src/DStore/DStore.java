@@ -10,6 +10,7 @@ import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class DStore {
     private int port;
@@ -18,6 +19,7 @@ public class DStore {
     private String file_folder;
     private String filePath;
     private boolean controllerConnected = false;
+    private ConcurrentHashMap<String, Integer> fileList = new ConcurrentHashMap<>();
 
     public DStore(int port, int cport, int timeout, String file_folder) {
         this.port = port;
@@ -82,7 +84,6 @@ public class DStore {
      * Thread to process Controller
      */
     class ControllerThread implements Runnable {
-        private Thread controllerThread;
         private Socket controller;
 
         public ControllerThread(Socket controller) {
@@ -131,7 +132,68 @@ public class DStore {
                                 
                                 if(file.delete()) {
                                     sendMsg.println(Protocal.REMOVE_ACK_TOKEN + " " + fileName);
+                                    if(fileList.containsKey(fileName)) {
+                                        fileList.remove(fileName);
+                                    }
                                 }
+                            }
+
+                            //COMMAND: REBALANCE: LIST
+                            else if (command.equals(Protocal.LIST_TOKEN)) {
+                                if(commands.length != 1) {
+                                    System.err.println("Wrong LIST command");
+                                    continue;
+                                }
+
+                                String list = "";
+                                for(String fileName : fileList.keySet()) {
+                                    list += " " + fileName;
+                                }
+
+                                sendMsg.println(Protocal.LIST_TOKEN + list);
+                            }
+
+                            else if (command.equals(Protocal.REBALANCE_TOKEN)) {
+                                Integer filesToSend = Integer.parseInt(commands[1]);
+                                Integer index = 2;
+
+                                for (int i = 0; i < filesToSend; i++) {
+                                    String filename = commands[index];
+                                    Integer portSendCount = Integer.parseInt(commands[index + 1]);
+
+                                    for (int j = index + 2; j <= index + 1 + portSendCount; j++) {
+
+                                        Socket dStoreSocket = new Socket(InetAddress.getByName("localhost"),Integer.parseInt(commands[j]));
+                                        BufferedReader inDstore = new BufferedReader(new InputStreamReader(dStoreSocket.getInputStream()));
+                                        PrintWriter outDstore = new PrintWriter(dStoreSocket.getOutputStream(), true);
+                                        File existingFile = new File(filePath + File.separator + filename);
+                                        Integer filesize = (int) existingFile.length(); // casting long to int file size limited to fat32
+                                        outDstore.println(Protocal.REBALANCE_STORE_TOKEN + " " + filename + " " + filesize);
+
+                                        if (inDstore.readLine() == Protocal.ACK_TOKEN) {
+                                            FileInputStream inf = new FileInputStream(existingFile);
+                                            OutputStream out = dStoreSocket.getOutputStream();
+                                            out.write(inf.readNBytes(filesize));
+                                            out.flush();
+                                            inf.close();
+                                            out.close();
+                                            dStoreSocket.close();
+                                        } else {
+                                            dStoreSocket.close();
+                                        }
+                                    }
+                                    index = index + portSendCount + 2; // ready index for next file
+                                }
+
+                                Integer fileRemoveCount = Integer.parseInt(commands[index]);
+                                for (int z = index + 1; z < index + 1 + fileRemoveCount; z++) {
+                                    File existingFile = new File(filePath + File.separator + commands[z]);
+                                    if (existingFile.exists()) {
+                                        existingFile.delete();
+                                    }
+                                }
+
+                                sendMsg.println(Protocal.REBALANCE_COMPLETE_TOKEN);
                             }
 
                             else {
@@ -153,7 +215,6 @@ public class DStore {
      * Thread to process Client
      */
     class ClientThread implements Runnable {
-        private Thread clientThread;
         private Socket client;
         private Socket controller;
         public ClientThread(Socket client, Socket controller) {
@@ -179,7 +240,7 @@ public class DStore {
                         System.out.println("Client Thread--" + commandLine);
                         
                         //COMMAND: STORE
-                        if(command.equals(Protocal.STORE_TOKEN)) {
+                        if(command.equals(Protocal.STORE_TOKEN) || command.equals(Protocal.REBALANCE_STORE_TOKEN)) {
                             //Receive STORE command from Client
                             if(commands.length != 3) {
                                 System.err.println("Wrong STORE command");
@@ -197,6 +258,7 @@ public class DStore {
                             while(System.currentTimeMillis() <= System.currentTimeMillis() + timeout) {
                                 fos.write(writeStream.readNBytes(fileSize));
                                 sendController.println(Protocal.STORE_ACK_TOKEN + " " + fileName);
+                                fileList.put(fileName, fileSize);
                                 break;
                             }
 
