@@ -12,7 +12,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class DStore {
+public class Dstore {
     private int port;
     private final int cport;
     private final int timeout;
@@ -21,7 +21,7 @@ public class DStore {
     private boolean controllerConnected = false;
     private ConcurrentHashMap<String, Integer> fileList = new ConcurrentHashMap<>();
 
-    public DStore(int port, int cport, int timeout, String file_folder) {
+    public Dstore(int port, int cport, int timeout, String file_folder) {
         this.port = port;
         this.cport = cport;
         this.timeout = timeout;
@@ -204,7 +204,12 @@ public class DStore {
 
                 } 
             } catch (IOException e1) {
-                e1.printStackTrace();
+                try {
+                    e1.printStackTrace();
+                    controller.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
                 controllerConnected = false;
             }
         }
@@ -303,14 +308,19 @@ public class DStore {
                 }
 
             } catch (Exception e) {
-                e.printStackTrace();
+                try {
+                    e.printStackTrace();
+                    client.close();
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
             } 
         }
         
     }
 
     public static void main(String[] args) {
-        DStore dStore = new DStore(Integer.parseInt(args[0]), Integer.parseInt(args[1]), Integer.parseInt(args[2]), String.valueOf(args[3]));
+        Dstore dStore = new Dstore(Integer.parseInt(args[0]), Integer.parseInt(args[1]), Integer.parseInt(args[2]), String.valueOf(args[3]));
         dStore.start();
     }
 
