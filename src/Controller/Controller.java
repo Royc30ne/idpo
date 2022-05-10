@@ -146,6 +146,11 @@ public class Controller {
 
                                     }
 
+                                    //Operations with Client (DStore aren't totally connected)
+                                    else if(!dStoreReady.get()) {
+                                        clientWrite.println(Protocal.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                                    }
+
                                     //COMMAND: STORE
                                     else if (commands[0].equals(Protocal.STORE_TOKEN)) {
 
@@ -156,11 +161,11 @@ public class Controller {
                                         }
 
 //                                        If DStores are enough
-                                        else if (!dStoreReady.get()) {
-                                            clientWrite.println(Protocal.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
-                                            System.out.println("SEND TO CLIENT: ERROR_NOT_ENOUGH_DSTORES");
-                                            continue;
-                                        }
+//                                        else if (!dStoreReady.get()) {
+//                                            clientWrite.println(Protocal.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+//                                            System.out.println("SEND TO CLIENT: ERROR_NOT_ENOUGH_DSTORES");
+//                                            continue;
+//                                        }
                                         
                                         String fileName = commands[1];
                                         Integer fileSize = Integer.parseInt(commands[2]);
@@ -317,11 +322,6 @@ public class Controller {
                                         validLoadPorts.remove(fileName);
                                     }
 
-                                } 
-                                
-                                //Operations with Client (DStore aren't totally connected)
-                                else if(!isDStore && !dStoreReady.get()) {
-                                    clientWrite.println(Protocal.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
                                 }
 
                                 //Operations with DStore
@@ -400,7 +400,9 @@ public class Controller {
                                     dStoreConnections.remove(currentDStorePort);
                                     deletePortFromValidLoad(currentDStorePort);
                                     countDStore.decrementAndGet();
-                                    dStoreReady.set(false);
+                                    if (countDStore.get() < this.r) {
+                                        dStoreReady.set(false);
+                                    }
                                     System.out.println("Current connected DStore: " + countDStore.get() + "/" + this.r);
                                 } else {
                                     System.out.println("ERROR: Client Disconnected!");
@@ -415,7 +417,9 @@ public class Controller {
                             System.out.println("ERROR: DStore Disconnected!");
                             dStoreConnections.remove(currentDStorePort);
                             countDStore.decrementAndGet();
-                            dStoreReady.set(false);
+                            if (countDStore.get() < this.r) {
+                                dStoreReady.set(false);
+                            }
                         }
                         e.printStackTrace();
                         System.out.println("Current connected DStore: " + countDStore.get() + "/" + this.r);
