@@ -21,7 +21,6 @@ public class ClientMain {
 		
 		// launch a single client
 		testClient(cport, timeout, downloadFolder, uploadFolder);
-		System.out.println("Single Client test passed");
 		
 		// launch a number of concurrent clients, each doing the same operations
 		for (int i = 0; i < 10; i++) {
@@ -128,5 +127,5 @@ public class ClientMain {
 		
 		return list;
 	}
-
+	
 }

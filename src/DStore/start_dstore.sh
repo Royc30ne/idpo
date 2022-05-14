@@ -1,3 +1,3 @@
-javac DStore.java Protocal.java
+javac Dstore.java Protocal.java
 &&
-java DStore 10015 10086 1000 testFolder
+java Dstore 10015 10086 1000 testFolder

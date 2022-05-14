@@ -1,12 +1,4 @@
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -45,13 +37,8 @@ public class Dstore {
             System.out.println("DStore Port: " + port);
             Socket controller = new Socket(InetAddress.getByName("localhost"), cport);
             System.out.println("Controller Connected.\nPort: " + cport);
-            
-            // new ControllerThread(con troller).start();
-            new Thread(new ControllerThread(controller)).start();
 
-            // if (!controllerConnected) {
-            //     return;
-            // } 
+            new Thread(new ControllerThread(controller)).start();
 
             System.out.println("Ready for Clinet Thread");
             ServerSocket serverSocket = new ServerSocket(port);
@@ -60,10 +47,9 @@ public class Dstore {
                 System.out.println("Waiting for Client to Join!");
                 Socket client = serverSocket.accept();
                 new Thread(new ClientThread(client, controller)).start();
-                // new ClientThread(client, controller);
             }
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
@@ -104,9 +90,9 @@ public class Dstore {
 
                 //Process Operations
                 while(true) {
-                        readline = readMsg.readLine().trim();
+                        readline = readMsg.readLine();
                         if(readline != null) {
-                            System.out.println("Controller Thread--" + readline);
+                            System.out.println("Receive Msg from Controller-" + controller.getPort() + ": " + readline);
                             String[] commands = readline.split(" ");
                             var command = commands[0].trim();
 
@@ -146,13 +132,17 @@ public class Dstore {
                                 }
 
                                 String list = "";
-                                for(String fileName : fileList.keySet()) {
-                                    list += " " + fileName;
+                                if (fileList.size() != 0) {
+                                    for (String fileName : fileList.keySet()) {
+                                        list += " " + fileName;
+                                    }
                                 }
 
+                                System.out.println("Send file list: " + list);
                                 sendMsg.println(Protocal.LIST_TOKEN + list);
                             }
 
+                            //REBALANCE
                             else if (command.equals(Protocal.REBALANCE_TOKEN)) {
                                 Integer filesToSend = Integer.parseInt(commands[1]);
                                 Integer index = 2;
@@ -193,6 +183,7 @@ public class Dstore {
                                     }
                                 }
 
+
                                 sendMsg.println(Protocal.REBALANCE_COMPLETE_TOKEN);
                             }
 
@@ -203,7 +194,7 @@ public class Dstore {
                         }
 
                 } 
-            } catch (IOException e1) {
+            } catch (Exception e1) {
                 try {
                     e1.printStackTrace();
                     controller.close();
@@ -242,7 +233,7 @@ public class Dstore {
                     if(commandLine != null) {
                         String[] commands = commandLine.split(" ");
                         String command = commands[0].trim();
-                        System.out.println("Client Thread--" + commandLine);
+                        System.out.println("Receive Msg from Client-" + client.getPort() + ": " + commands);
                         
                         //COMMAND: STORE
                         if(command.equals(Protocal.STORE_TOKEN) || command.equals(Protocal.REBALANCE_STORE_TOKEN)) {
@@ -259,10 +250,13 @@ public class Dstore {
                             Integer fileSize = Integer.parseInt(commands[2]);
                             File file = new File(filePath + File.separator + fileName);
                             FileOutputStream fos = new FileOutputStream(file);
-                            
-                            while(System.currentTimeMillis() <= System.currentTimeMillis() + timeout) {
+
+                            var startTime = System.currentTimeMillis();
+                            while(System.currentTimeMillis() <= startTime + timeout) {
                                 fos.write(writeStream.readNBytes(fileSize));
-                                sendController.println(Protocal.STORE_ACK_TOKEN + " " + fileName);
+                                if (command.equals(Protocal.STORE_TOKEN)) {
+                                    sendController.println(Protocal.STORE_ACK_TOKEN + " " + fileName);
+                                }
                                 fileList.put(fileName, fileSize);
                                 break;
                             }
@@ -283,17 +277,36 @@ public class Dstore {
                             
                             String fileName = commands[1];
                             File file = new File(filePath + File.separator + fileName);
+
                             if(!file.exists() || !file.isFile()) {
                                 System.err.println("File Not Exists");
                                 client.close();
                                 return;
                             }
+
                             FileInputStream fileStream = new FileInputStream(file);
                             OutputStream sendStream = client.getOutputStream();
-                            sendStream.write(fileStream.readAllBytes());
+                            var dos = new DataOutputStream(sendStream);
+
+                            dos.writeUTF(file.getName());
+                            dos.flush();
+                            dos.writeLong(file.length());
+                            dos.flush();
+
+                            //Start Sending
+                            byte[] bytes = new byte[1024];
+                            int length = 0;
+                            long progress = 0;
+                            while((length = fileStream.read(bytes, 0, bytes.length)) != -1) {
+                                dos.write(bytes, 0, length);
+                                dos.flush();
+                                progress += length;
+                                System.out.print("| " + (100*progress/file.length()) + "% |");
+                            }
 
                             //Done. Close all connections
-                            sendStream.flush();
+                            dos.flush();
+                            dos.close();
                             fileStream.close();
                             sendStream.close();
                             client.close();
