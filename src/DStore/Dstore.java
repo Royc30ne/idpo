@@ -2,7 +2,13 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.FileHandler;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class Dstore {
     private int port;
@@ -12,21 +18,49 @@ public class Dstore {
     private String filePath;
     private boolean controllerConnected = false;
     private ConcurrentHashMap<String, Integer> fileList = new ConcurrentHashMap<>();
+    public static final Logger logger = Logger.getLogger(Logger.class.toString());
 
+    /**
+     * @param port Dstore port
+     * @param cport Controller port
+     * @param timeout Timeout period
+     * @param file_folder Folder Name
+     */
     public Dstore(int port, int cport, int timeout, String file_folder) {
         this.port = port;
         this.cport = cport;
         this.timeout = timeout;
         this.file_folder = file_folder;
+
+        logger.setLevel(Level.ALL);
+
+        //Check Duplication
+        for(Handler h: logger.getHandlers()){
+            h.close();
+        }
+
+        //Set Log Path
+        try{
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+            String logPath = "log" + File.pathSeparator + sdf.format(new Date()) + ".log";
+            FileHandler fileHandler = new FileHandler(logPath,true);
+            logger.addHandler(fileHandler);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
+    /**
+     * Method to start controller
+     */
     public void start() {
         File folder = new File(file_folder);
         if (!folder.exists()) {
-            System.out.println("Creating Folder: " + file_folder);
+            logger.info("Creating Folder: " + file_folder);
+            System.out.println();
             folder.mkdir();
         } else {
-            System.out.println("Folder exists");
+            logger.info("Folder exists");
         }
         
         //Initialise DStore folder
@@ -34,30 +68,33 @@ public class Dstore {
         clearFolder(folder);
 
         try {
-            System.out.println("DStore Port: " + port);
+            logger.info("DStore Port: " + port);
             Socket controller = new Socket(InetAddress.getByName("localhost"), cport);
-            System.out.println("Controller Connected.\nPort: " + cport);
+            logger.info("Controller Connected.\nPort: " + cport);
 
-            new Thread(new ControllerThread(controller)).start();
+            new ControllerThread(controller).start();
 
-            System.out.println("Ready for Clinet Thread");
+            logger.info("Ready for Clinet Thread");
             ServerSocket serverSocket = new ServerSocket(port);
             
             while(true) {
-                System.out.println("Waiting for Client to Join!");
+                logger.info("Waiting for Client to Join!");
                 Socket client = serverSocket.accept();
-                new Thread(new ClientThread(client, controller)).start();
+                new ClientThread(client, controller).start();
             }
 
         } catch (Exception e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
         }
     }
 
+    /**
+     * Method to clear a folder
+     * @param folder The folder to be cleared
+     */
     public void clearFolder(File folder) {
         try{
-            System.out.println("Clearing Folder: " + folder.getName());
+            logger.info("Clearing Folder: " + folder.getName());
             for (File file : folder.listFiles()) {
                 file.delete();
             }
@@ -69,7 +106,7 @@ public class Dstore {
     /**
      * Thread to process Controller
      */
-    class ControllerThread implements Runnable {
+    class ControllerThread extends Thread {
         private Socket controller;
 
         public ControllerThread(Socket controller) {
@@ -86,38 +123,41 @@ public class Dstore {
                 String readline = null;
                 
                 //Join Controller
-                sendMsg.println(Protocal.JOIN_TOKEN + " " + port);
+                sendMsg.println(Protocol.JOIN_TOKEN + " " + port);
+                logger.info("[" + port + " -> " + controller.getPort() + "] " + Protocol.JOIN_TOKEN + " " + port);
 
                 //Process Operations
                 while(true) {
                         readline = readMsg.readLine();
                         if(readline != null) {
-                            System.out.println("Receive Msg from Controller-" + controller.getPort() + ": " + readline);
+                            logger.info("[From Controller] " + controller.getPort() + ": " + readline);
                             String[] commands = readline.split(" ");
                             var command = commands[0].trim();
 
                             //COMMAND: JOIN
-                            if(command.equals(Protocal.JOIN_SUCCESS_TOKEN)) {
+                            if(command.equals(Protocol.JOIN_SUCCESS_TOKEN)) {
                                 controllerConnected = true;
-                                System.out.println("Successfully build connection with Controller");
+                                logger.info("Successfully build connection with Controller");
                             }
                             
                             //COMMAND: REMOVE
-                            else if (command.equals(Protocal.REMOVE_TOKEN)) {
+                            else if (command.equals(Protocol.REMOVE_TOKEN)) {
                                 if(commands.length != 2) {
-                                    System.err.println("Wrong REMOVE command");
+                                    logger.info("Wrong REMOVE command");
                                     continue;
                                 }
                                 
                                 String fileName = commands[1];
                                 File file = new File(filePath + File.separator + fileName);
                                 if(!file.exists() || !file.isFile()) {
-                                    System.err.println("File not exists");
-                                    sendMsg.println(Protocal.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
+                                    logger.info("File not exists");
+                                    sendMsg.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
+                                    logger.info("[" + port + " -> " + controller.getPort() + "] " + Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
                                 } 
                                 
                                 if(file.delete()) {
-                                    sendMsg.println(Protocal.REMOVE_ACK_TOKEN + " " + fileName);
+                                    sendMsg.println(Protocol.REMOVE_ACK_TOKEN + " " + fileName);
+                                    logger.info("[" + port + " -> " + controller.getPort() + "] " + Protocol.REMOVE_ACK_TOKEN + " " + fileName);
                                     if(fileList.containsKey(fileName)) {
                                         fileList.remove(fileName);
                                     }
@@ -125,9 +165,9 @@ public class Dstore {
                             }
 
                             //COMMAND: REBALANCE: LIST
-                            else if (command.equals(Protocal.LIST_TOKEN)) {
+                            else if (command.equals(Protocol.LIST_TOKEN)) {
                                 if(commands.length != 1) {
-                                    System.err.println("Wrong LIST command");
+                                    logger.info("Wrong LIST command");
                                     continue;
                                 }
 
@@ -138,12 +178,12 @@ public class Dstore {
                                     }
                                 }
 
-                                System.out.println("Send file list: " + list);
-                                sendMsg.println(Protocal.LIST_TOKEN + list);
+                                sendMsg.println(Protocol.LIST_TOKEN + list);
+                                logger.info("[" + port + " -> " + controller.getPort() + "] " + Protocol.LIST_TOKEN + list);
                             }
 
                             //REBALANCE
-                            else if (command.equals(Protocal.REBALANCE_TOKEN)) {
+                            else if (command.equals(Protocol.REBALANCE_TOKEN)) {
                                 Integer filesToSend = Integer.parseInt(commands[1]);
                                 Integer index = 2;
 
@@ -158,9 +198,9 @@ public class Dstore {
                                         PrintWriter outDstore = new PrintWriter(dStoreSocket.getOutputStream(), true);
                                         File existingFile = new File(filePath + File.separator + filename);
                                         Integer filesize = (int) existingFile.length(); // casting long to int file size limited to fat32
-                                        outDstore.println(Protocal.REBALANCE_STORE_TOKEN + " " + filename + " " + filesize);
+                                        outDstore.println(Protocol.REBALANCE_STORE_TOKEN + " " + filename + " " + filesize);
 
-                                        if (inDstore.readLine() == Protocal.ACK_TOKEN) {
+                                        if (inDstore.readLine() == Protocol.ACK_TOKEN) {
                                             FileInputStream inf = new FileInputStream(existingFile);
                                             OutputStream out = dStoreSocket.getOutputStream();
                                             out.write(inf.readNBytes(filesize));
@@ -184,11 +224,12 @@ public class Dstore {
                                 }
 
 
-                                sendMsg.println(Protocal.REBALANCE_COMPLETE_TOKEN);
+                                sendMsg.println(Protocol.REBALANCE_COMPLETE_TOKEN);
+                                logger.info("[" + port + " -> " + controller.getPort() + "] " + Protocol.REBALANCE_COMPLETE_TOKEN);
                             }
 
                             else {
-                                System.err.println("Unknown command!");
+                                logger.info("Unknown command!");
                                 continue;
                             }
                         }
@@ -210,7 +251,7 @@ public class Dstore {
     /**
      * Thread to process Client
      */
-    class ClientThread implements Runnable {
+    class ClientThread extends Thread {
         private Socket client;
         private Socket controller;
         public ClientThread(Socket client, Socket controller) {
@@ -226,23 +267,23 @@ public class Dstore {
                 BufferedReader receiveClient = new BufferedReader(new InputStreamReader(client.getInputStream()));
                 InputStream writeStream = client.getInputStream();
                 String commandLine;
-                System.out.println("Client connected");
+                logger.info("Client Connected");
 
                 while(true) {
                     commandLine = receiveClient.readLine();
                     if(commandLine != null) {
                         String[] commands = commandLine.split(" ");
                         String command = commands[0].trim();
-                        System.out.println("Receive Msg from Client-" + client.getPort() + ": " + commands);
+                        System.out.println("[From Client]" + client.getPort() + ": " + commands);
                         
                         //COMMAND: STORE
-                        if(command.equals(Protocal.STORE_TOKEN) || command.equals(Protocal.REBALANCE_STORE_TOKEN)) {
+                        if(command.equals(Protocol.STORE_TOKEN) || command.equals(Protocol.REBALANCE_STORE_TOKEN)) {
                             //Receive STORE command from Client
                             if(commands.length != 3) {
-                                System.err.println("Wrong STORE command");
+                                logger.info("Wrong STORE command");
                                 continue;
                             } else {
-                                sendClinet.println(Protocal.ACK_TOKEN);
+                                sendClinet.println(Protocol.ACK_TOKEN);
                             }
 
                             //Receive file stream from Client
@@ -254,8 +295,9 @@ public class Dstore {
                             var startTime = System.currentTimeMillis();
                             while(System.currentTimeMillis() <= startTime + timeout) {
                                 fos.write(writeStream.readNBytes(fileSize));
-                                if (command.equals(Protocal.STORE_TOKEN)) {
-                                    sendController.println(Protocal.STORE_ACK_TOKEN + " " + fileName);
+                                if (command.equals(Protocol.STORE_TOKEN)) {
+                                    sendController.println(Protocol.STORE_ACK_TOKEN + " " + fileName);
+                                    logger.info("[" + port + " -> " + cport + "] " + Protocol.STORE_ACK_TOKEN + " " + fileName);
                                 }
                                 fileList.put(fileName, fileSize);
                                 break;
@@ -269,9 +311,9 @@ public class Dstore {
                         } 
                         
                         //COMMAND: LOAD_DATA
-                        else if(command.equals(Protocal.LOAD_DATA_TOKEN)) {
+                        else if(command.equals(Protocol.LOAD_DATA_TOKEN)) {
                             if(commands.length != 2) {
-                                System.err.println("Wrong LOAD_DATA command");
+                                logger.info("Wrong LOAD_DATA command");
                                 continue;
                             } 
                             
@@ -279,7 +321,7 @@ public class Dstore {
                             File file = new File(filePath + File.separator + fileName);
 
                             if(!file.exists() || !file.isFile()) {
-                                System.err.println("File Not Exists");
+                                logger.info("Load File Not Exists");
                                 client.close();
                                 return;
                             }
@@ -301,7 +343,7 @@ public class Dstore {
                                 dos.write(bytes, 0, length);
                                 dos.flush();
                                 progress += length;
-                                System.out.print("| " + (100*progress/file.length()) + "% |");
+                                logger.info("| " + (100*progress/file.length()) + "% |");
                             }
 
                             //Done. Close all connections
@@ -314,7 +356,7 @@ public class Dstore {
                         } 
 
                         else {
-                            System.err.println("Unknown Command");
+                            logger.info("Unknown Command");
                             continue;
                         }
                     }
