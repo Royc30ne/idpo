@@ -1,15 +1,20 @@
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.FileHandler;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
+/**
+ *
+ */
 public class Controller {
     public enum FileState{
         STORE_IN_PROGRESS,
@@ -18,6 +23,7 @@ public class Controller {
         REMOVE_COMPLETE
     }
 
+    public static final Logger logger = Logger.getLogger(Controller.class.toString());
     private Client currentClient = null;
     private final int cport;
     private final int r;
@@ -45,13 +51,40 @@ public class Controller {
     private Object generalLock = new Object();
 
 
+    /**
+     * @param cport Controller Port
+     * @param r R factor
+     * @param timeout Timeout period
+     * @param rebalanced_period Rebalance period
+     */
     public Controller(int cport, int r, int timeout, int rebalanced_period) {
         this.cport = cport;
         this.r = r;
         this.timeout = timeout;
         this.rebalanced_period = rebalanced_period;
+
+        logger.setLevel(Level.ALL);
+
+        //Check Duplication
+        for(Handler h: logger.getHandlers()){
+            h.close();
+        }
+
+        //Set Log Path
+        try{
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+            String logPath = "log" + File.pathSeparator + sdf.format(new Date()) + ".log";
+            FileHandler fileHandler = new FileHandler(logPath,true);
+            logger.addHandler(fileHandler);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
+
+    /**
+     * Method to start the controller
+     */
     public void startController() {
         try {
             System.out.println("DStore server starting...");
@@ -64,38 +97,46 @@ public class Controller {
             for (;;) {
                 try {
                     Socket client = serverSocket.accept();
-                    System.out.print("Client: " + serverSocket.getInetAddress().getLocalHost() + "-" + client.getPort() + " has connected to DS server. \n");
+                    logger.info("Client: " + serverSocket.getInetAddress().getLocalHost() + "-" + client.getPort() + " has connected to DS server.");
                     new SocketThread(client, r).start();
 
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
-
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
+    /**
+     * Method to delete a port from valid loading port
+     * @param port The port to be deleted
+     */
     private synchronized void deletePortFromValidLoad(Integer port) {
         for(String fileName : validLoadPorts.keySet()) {
             if (validLoadPorts.get(fileName).contains(port)) {
                 validLoadPorts.get(fileName).remove(port);
             }
         }
-        System.out.println("Local Info: Port " + port + " deleted from valid load port list!");
+        System.out.println("[Controller] Port " + port + " deleted from valid load port list!");
     }
 
+    /**
+     * Choose a port to be load from a list
+     * @param fileName File to be loaded
+     * @return the chosen port
+     */
     private synchronized Integer chooseLoadPort(String fileName) {
         var port = loadChoosePort.get(fileName).get(0);
         loadChoosePort.get(fileName).remove(0);
         return port;
     }
 
-    private void showFileStateIndex() {
-        System.out.print(fileStateIndex.toString());
-    }
 
+    /**
+     * Update Store Factor to balance the files for dstore to store
+     */
     private void updateStoreFactor() {
         storeFactor.clear();
 
@@ -117,7 +158,7 @@ public class Controller {
     /**
      * Choose DStores according to store factor(RF/N) sorted from small to large.
      * @param r_factor
-     * @return
+     * @return a list of ports hold the file
      */
     private synchronized List<Integer> chooseStorePorts(Integer r_factor) {
         ArrayList<Integer> dStores = new ArrayList<>();
@@ -128,6 +169,12 @@ public class Controller {
         return dStores.subList(0,r_factor);
     }
 
+    /**
+     * Choose DStores according to store factor(RF/N) sorted from small to large.
+     * @param fileName File to be chosen
+     * @param r_factor
+     * @return a list of ports hold the file
+     */
     private synchronized List<Integer> chooseStorePorts(String fileName, Integer r_factor) {
         ArrayList<Integer> dStores = new ArrayList<>();
         storeFactor.entrySet().stream().sorted(Map.Entry.comparingByValue()).forEach(dStoreDoubleEntry -> {
@@ -139,11 +186,14 @@ public class Controller {
         return dStores.subList(0,r_factor);
     }
 
+    /**
+     * Method to start rebalance operation
+     */
     public synchronized void rebalanceOperation() {
 
         //DStores not enough
         if(dStoreConnections.keySet().size() < this.r) {
-            System.out.println("Dstore not enough, rebalance stop!");
+            logger.info("[System Warning] Dstore not enough, rebalance stop!");
             return;
         }
 
@@ -154,17 +204,17 @@ public class Controller {
             }
         }
 
-        System.out.println("[System Info - Rebalance] Starting Rebalance");
+        logger.info("[System Info - Rebalance] Starting Rebalance");
+
         //Send LIST To DStores
         listACK.clear();
 
         for(Integer iport : dStoreConnections.keySet()) {
-            System.out.println("Send Dstore-" + iport + ": LIST");
-            dStoreConnections.get(iport).sendDStoreMsg(Protocal.LIST_TOKEN);
+            dStoreConnections.get(iport).sendDStoreMsg(Protocol.LIST_TOKEN);
         }
 
         //Waiting for LIST
-        System.out.println("[System Info - Rebalance] Waiting for List");
+        logger.info("[System Info - Rebalance] Waiting for List");
         var startTime = System.currentTimeMillis();
         while (System.currentTimeMillis() <= startTime + timeout) {// checks if file to store has completed acknowledgements
             if (listACK.size() >= dStoreConnections.size()) {
@@ -172,8 +222,7 @@ public class Controller {
                 break;
             }
         }
-
-        System.out.println("[System Info - Rebalance] Lists received");
+        logger.info("[System Info - Rebalance] Lists received");
 
         for(String fileName : validLoadPorts.keySet()) {
             if(validLoadPorts.get(fileName).size() < this.r) {
@@ -186,7 +235,7 @@ public class Controller {
         startTime = System.currentTimeMillis();
         while (System.currentTimeMillis() <= startTime + timeout) {
             if (ackRebalance.get() >= dStoreConnections.keySet().size()) { // checks if file to store has completed acknowledgements
-                System.out.println("[System Info - Rebalance] Rebalance Successful");
+                logger.info("[System Info - Rebalance] Rebalance Successful");
                 break;
             }
         }
@@ -194,6 +243,9 @@ public class Controller {
         ackRebalance.set(0);
     }
 
+    /**
+     * Method to send rebalance command to each dstore
+     */
     private synchronized void sendRebalance() {
 
         for (Integer port : dStoreConnections.keySet()) { // function for sorting the REBALANCE files_to_send files_to_remove
@@ -249,7 +301,7 @@ public class Controller {
                 }
             }
 
-            dStoreConnections.get(port).sendDStoreMsg(Protocal.REBALANCE_TOKEN + " " + files_to_send_count + files_to_send + " " + files_to_remove_count + files_to_remove);
+            dStoreConnections.get(port).sendDStoreMsg(Protocol.REBALANCE_TOKEN + " " + files_to_send_count + files_to_send + " " + files_to_remove_count + files_to_remove);
         }
     }
 
@@ -266,17 +318,12 @@ public class Controller {
             this.port = port;
             this.socket = socket;
         }
-        
-        public void sendClientMsg(String msg) {
-            try {
-                var clientWrite = new PrintWriter(socket.getOutputStream(), true);
-                clientWrite.println(msg);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
     }
 
+
+    /**
+     * A Dstore instance
+     */
      public class DStore {
          Integer port;
          Socket socket;
@@ -286,22 +333,33 @@ public class Controller {
              this.socket = socket;
          }
 
+        /**
+         * Method to send message to a Dstore
+         * @param msg message to be sent
+         */
          public void sendDStoreMsg(String msg) {
              try {
                  var dstoreWrite = new PrintWriter(socket.getOutputStream(), true);
                  dstoreWrite.println(msg);
+                 logger.info("[" + cport + " -> " + port + "] " + msg);
              } catch (IOException e) {
-                 System.out.println("Lost Connection: " + port);
+                 logger.info("Lost Connection: " + port);
                  dStoreConnections.remove(this.port);
                  e.printStackTrace();
              }
          }
 
+        /**
+         * @return the port of the Dstore
+         */
          public Integer getPort() {
              return this.port;
          }
      }
 
+    /**
+     * Thread to control Rebalance operation
+     */
      class RebalanceThread extends Thread {
         private Integer rebalancePeriod;
 
@@ -322,6 +380,9 @@ public class Controller {
          }
      }
 
+    /**
+     * Thread to keep connection with each client
+     */
      class SocketThread extends Thread {
         Socket client;
         Integer r;
@@ -340,11 +401,13 @@ public class Controller {
                  BufferedReader clinetRead = new BufferedReader(new InputStreamReader(client.getInputStream()));
                  PrintWriter clientWrite = new PrintWriter(client.getOutputStream(), true);
                  String clientInput = null;
-                 // client.setSoTimeout(timeout);
 
                  for(;;) {
                      clientInput = clinetRead.readLine();
+
                      if (clientInput != null) {
+
+                         //Deal with input commands
                          String[] commands = clientInput.split(" ");
                          String commandToken;
                          if (commands.length == 1) {
@@ -353,19 +416,21 @@ public class Controller {
                          } else {
                              commandToken = commands[0];
                          }
-                         System.out.println("Msg From " + currentDStorePort + ": "+ commandToken);
+                         logger.info("[" + client.getPort() + " -> " + cport + " ]" + commands);
+
+//                         System.out.println("Msg From " + currentDStorePort + ": "+ commandToken);
 
                          //Recognize DStore COMMAND: JOIN
-                         if (commandToken.equals(Protocal.JOIN_TOKEN)) {
+                         if (commandToken.equals(Protocol.JOIN_TOKEN)) {
+
                              //Check duplicate dstore port
                              currentDStorePort = Integer.parseInt(commands[1]);
-
                              while (rebalancing.get()) {
                                  continue;
                              }
 
                              if (dStoreConnections.get(currentDStorePort) != null) {
-                                 System.out.println("DStore port in used!");
+                                 logger.info("[" + client.getPort() + " -> " + cport + " ] Denied! DStore port conflicts!");
                                  client.close();
                                  break;
                              }
@@ -376,13 +441,13 @@ public class Controller {
                              }
                              countDStore.incrementAndGet();
                              currentDStorePort = Integer.parseInt(commands[1]);
-                             System.out.println("Binding DStore port: " + commands[1] + " with socket\n" +
+                             logger.info("Binding DStore port: " + commands[1] + " with socket\n" +
                                      "Current connected DStore: " + countDStore.get() + "/" + this.r);
 
-                             clientWrite.println(Protocal.JOIN_SUCCESS_TOKEN);
+                             clientWrite.println(Protocol.JOIN_SUCCESS_TOKEN);
 
                              if (countDStore.get() >= this.r) {
-                                 System.out.println("All DStores are connected, ready for client!");
+                                 logger.info("R DStores are connected, ready for client!");
                                  dStoreReady.set(true);
                              }
                              continue;
@@ -394,33 +459,33 @@ public class Controller {
                              //----------Client----------
 
                              //COMMAND: LIST
-                             if (commandToken.equals(Protocal.LIST_TOKEN)) {
-                                 System.out.println("Command Receive From Client: List");
+                             if (commandToken.equals(Protocol.LIST_TOKEN)) {
 
                                  if (commands.length != 1) {
-                                     System.err.println("Wrong List COMMAND");
+                                     logger.info("[System Warning] Wrong LIST COMMAND");
                                      continue;
                                  }
 
                                  if (fileSizeIndex.keySet().size() == 0) {
-                                     clientWrite.println(Protocal.LIST_TOKEN);
+                                     clientWrite.println(Protocol.LIST_TOKEN);
+                                     logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.LIST_TOKEN);
                                  } else {
                                      String file_list = "";
-                                     showFileStateIndex();
                                      for (String i : fileSizeIndex.keySet()) {
                                          file_list = file_list + " " + i;
                                      }
-                                     clientWrite.println(Protocal.LIST_TOKEN + file_list);
+                                     clientWrite.println(Protocol.LIST_TOKEN + file_list);
+                                     logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.LIST_TOKEN + file_list);
                                  }
 
                              }
 
                              //COMMAND: STORE
-                             else if (commandToken.equals(Protocal.STORE_TOKEN)) {
+                             else if (commandToken.equals(Protocol.STORE_TOKEN)) {
 
                                  //Check length of STORE command from Client
                                  if (commands.length != 3) {
-                                     System.err.println("Wrong STORE command");
+                                     logger.info("[System Warning] Wrong STORE COMMAND");
                                      continue;
                                  }
 
@@ -430,7 +495,8 @@ public class Controller {
                                  synchronized (generalLock) {
                                      //If fileName duplicates
                                      if (fileStateIndex.containsKey(fileName)) {
-                                         clientWrite.println(Protocal.ERROR_FILE_ALREADY_EXISTS_TOKEN);
+                                         clientWrite.println(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
+                                         logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
                                          continue;
                                      }
 
@@ -445,22 +511,24 @@ public class Controller {
                                  ackReceive.put(fileName, new AtomicInteger(0));
                                  validLoadPorts.put(fileName, new ArrayList<Integer>());
 
-                                 System.out.println("LOCAL: STARTING RECEIVE ACK FILENAME: " + fileName);
+                                 //Send Msg to client
+                                 logger.info("[Controller] START TO RECEIVE ACK: " + fileName);
                                  updateStoreFactor();
                                  String msg = "";
                                  for (Integer i : chooseStorePorts(this.r)) {
                                      msg += " " + i;
                                  }
-                                 clientWrite.println(Protocal.STORE_TO_TOKEN + msg);
-                                 System.out.println("SEND TO CLIENT: " + Protocal.STORE_TO_TOKEN + msg);
-                                 boolean storeComplete = false;
+                                 clientWrite.println(Protocol.STORE_TO_TOKEN + msg);
+                                 System.out.println("[" + cport + " -> " + client.getPort() + "] " + Protocol.STORE_TO_TOKEN + msg);
 
+                                 boolean storeComplete = false;
                                  var startTime = System.currentTimeMillis();
+
                                  //Timeout Setting
                                  while (System.currentTimeMillis() <= startTime + timeout) {
                                      if (ackReceive.get(fileName).get() >= r) {
-                                         clientWrite.println(Protocal.STORE_COMPLETE_TOKEN);
-                                         System.out.println("SEND TO CLIENT-" + client.getPort() + ": STORE COMPLETE");
+                                         clientWrite.println(Protocol.STORE_COMPLETE_TOKEN);
+                                         logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.STORE_COMPLETE_TOKEN);
                                          fileStateIndex.remove(fileName);
                                          fileStateIndex.put(fileName, FileState.STORE_COMPLETE);
                                          fileSizeIndex.put(fileName, fileSize);
@@ -471,7 +539,7 @@ public class Controller {
                                  }
 
                                  if (!storeComplete) {
-                                     System.out.println(fileName + " Store timeout");
+                                     logger.info("[System Warning] " + fileName + " Store timeout");
                                      validLoadPorts.remove(fileName);
                                      fileStateIndex.remove(fileName);
                                  }
@@ -482,11 +550,11 @@ public class Controller {
                              }
 
                              //COMMAND: LOAD && RELOAD
-                             else if (commandToken.equals(Protocal.LOAD_TOKEN) || commands[0].equals(Protocal.RELOAD_TOKEN)) {
+                             else if (commandToken.equals(Protocol.LOAD_TOKEN) || commands[0].equals(Protocol.RELOAD_TOKEN)) {
                                  String fileName;
                                  //Check length of LOAD command from Client
                                  if (commands.length != 2) {
-                                     System.err.println("Unknow commands: " + commands);
+                                     logger.info("[System Warning] Wrong LOAD && RELOAD COMMAND");
                                      continue;
                                  }
 
@@ -500,43 +568,48 @@ public class Controller {
                                      }
 
                                      //Response to Client: LOAD_FROM port filesize
-                                     if (commands[0].equals(Protocal.LOAD_TOKEN)) {
+                                     if (commands[0].equals(Protocol.LOAD_TOKEN)) {
                                          //Remove last load operation from the list
                                          if (loadChoosePort.containsKey(fileName)) {
                                              loadChoosePort.remove(fileName);
                                          }
 
                                          loadChoosePort.put(fileName, validLoadPorts.get(fileName));
-                                         clientWrite.println(Protocal.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
+                                         clientWrite.println(Protocol.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
+                                         logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
                                      }
 
                                      // RELOAD
                                      else {
                                          if (loadChoosePort.get(fileName).size() == 0) {
                                              //Cannot connect to any port
-                                             clientWrite.println(Protocal.ERROR_LOAD_TOKEN);
+                                             clientWrite.println(Protocol.ERROR_LOAD_TOKEN);
+                                             logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.ERROR_LOAD_TOKEN);
                                          } else {
-                                             clientWrite.println(Protocal.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
+                                             clientWrite.println(Protocol.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
+                                             logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.LOAD_FROM_TOKEN + " " + chooseLoadPort(fileName) + " " + fileSizeIndex.get(fileName));
                                          }
                                      }
 
                                  } else {
-                                     clientWrite.println(Protocal.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                                     clientWrite.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                                     logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
                                  }
 
                              }
 
                              //COMMAND: REMOVE
-                             else if (commandToken.equals(Protocal.REMOVE_TOKEN)) {
+                             else if (commandToken.equals(Protocol.REMOVE_TOKEN)) {
                                  if (commands.length != 2) {
-                                     System.err.println("Wrong REMOVE command");
+                                     System.err.println("[System Warning] Wrong REMOVE COMMAND");
                                      continue;
                                  }
 
                                  String fileName = commands[1];
 
                                  if (!fileSizeIndex.containsKey(fileName)) {
-                                     clientWrite.println(Protocal.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                                     clientWrite.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                                     logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
                                      continue;
                                  }
 
@@ -553,8 +626,10 @@ public class Controller {
                                      fileStateIndex.put(fileName, FileState.REMOVE_IN_PROGRESS);
                                  }
 
+                                 //Send REMOVE Command
                                  for (DStore i : dStoreConnections.values()) {
-                                     i.sendDStoreMsg(Protocal.REMOVE_TOKEN + " " + fileName);
+                                     i.sendDStoreMsg(Protocol.REMOVE_TOKEN + " " + fileName);
+                                     logger.info("[" + cport + " -> " + i.getPort() + "] " + Protocol.REMOVE_TOKEN + " " + fileName);
                                  }
 
                                  synchronized (removeAckLock) {
@@ -563,18 +638,19 @@ public class Controller {
 
                                  boolean removeComplete = false;
 
+                                 //Timeout Setting
                                  var startTime = System.currentTimeMillis();
                                  while (System.currentTimeMillis() <= startTime + timeout) {
                                      if (ackRemove.get(fileName).get() == r) {
                                          removeComplete = true;
-                                         clientWrite.println(Protocal.REMOVE_COMPLETE_TOKEN);
+                                         clientWrite.println(Protocol.REMOVE_COMPLETE_TOKEN);
                                          fileSizeIndex.remove(fileName);
                                          break;
                                      }
                                  }
 
                                  if (!removeComplete) {
-                                     System.err.println("REMOVE timeout. File: " + fileName);
+                                     logger.info("[Controller] REMOVE timeout. File: "+ fileName);
                                  }
 
                                  ackRemove.remove(fileName);
@@ -586,37 +662,35 @@ public class Controller {
 
                          //Operations with Client (DStore aren't totally connected)
                          else if (!isDStore && !dStoreReady.get()) {
-                             clientWrite.println(Protocal.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                             clientWrite.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                             logger.info("[" + cport + " -> " + client.getPort() + "] " + Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
                          }
 
                          //Operations with DStore
                          else if (isDStore) {
+
                              //COMMAND: STORE_ACK filename
-                             if (commandToken.equals(Protocal.STORE_ACK_TOKEN)) {
+                             if (commandToken.equals(Protocol.STORE_ACK_TOKEN)) {
                                  if (commands.length != 2) {
-                                     System.err.println("Wrong STORE_ACK command format");
+                                     logger.info("[System Warning] Wrong STORE_ACK Command");
                                  }
                                  String fileName = commands[1].trim();
 
                                  //Update File Index State when receive ack
                                  synchronized (storeAckLock) {
-
                                      if (ackReceive.keySet().contains(fileName)) {
-
                                          ackReceive.get(fileName).incrementAndGet();
                                          validLoadPorts.get(fileName).add(currentDStorePort);
-                                         System.out.println(ackReceive.get(fileName).get());
                                      } else {
-
-                                         System.err.println("ACK file not exists" + ackReceive.keySet());
+                                         logger.info("[Controller] ACK file not exists" + ackReceive.keySet());
                                      }
                                  }
                              }
 
                              //COMMAND: REMOVE_ACK filename
-                             else if (commandToken.equals(Protocal.REMOVE_ACK_TOKEN)) {
+                             else if (commandToken.equals(Protocol.REMOVE_ACK_TOKEN)) {
                                  if (commands.length != 2) {
-                                     System.err.println("Wrong STORE_ACK command format");
+                                     logger.info("[System Warning] Wrong STORE_ACK Command");
                                  }
                                  String fileName = commands[1].trim();
 
@@ -628,19 +702,19 @@ public class Controller {
                                              validLoadPorts.get(fileName).remove(currentDStorePort);
                                          }
                                      } else {
-                                         System.err.println("ACK file not exists");
+                                         logger.info("[Controller] ACK file not exists");
                                      }
                                  }
                              }
 
                              //COMMAND: REBALANCE_COMPLETE
-                             else if (commandToken.equals(Protocal.REBALANCE_COMPLETE_TOKEN)) {
-                                 System.out.println("DStore port:" + currentDStorePort + " REBALANCE COMPELETE!");
+                             else if (commandToken.equals(Protocol.REBALANCE_COMPLETE_TOKEN)) {
+                                 logger.info("DStore port:" + currentDStorePort + " REBALANCE COMPELETE!");
                                  ackRebalance.incrementAndGet();
                              }
 
                              //COMMAND: LIST
-                             else if (commandToken.equals(Protocal.LIST_TOKEN)) {
+                             else if (commandToken.equals(Protocol.LIST_TOKEN)) {
                                  ArrayList<String> fileList = new ArrayList<>(Arrays.asList(commands));
                                  fileList.remove(0);
 
@@ -663,16 +737,16 @@ public class Controller {
 
                      } else {
                          if (isDStore) {
-                             System.out.println("ERROR: DStore Disconnected! Port: " + currentDStorePort);
+                             logger.info("[System Error] DStore Disconnected! Port: "+ currentDStorePort);
                              dStoreConnections.remove(currentDStorePort);
                              deletePortFromValidLoad(currentDStorePort);
                              countDStore.decrementAndGet();
                              if (countDStore.get() < this.r) {
                                  dStoreReady.set(false);
                              }
-                             System.out.println("Current connected DStore: " + countDStore.get() + "/" + this.r);
+                             logger.info("[Controller] Current connected DStore: " + countDStore.get() + "/" + this.r);
                          } else {
-                             System.out.println("ERROR: Client Disconnected!");
+                             logger.info("[System Error] Client Disconnected!");
                          }
                          client.close();
                          break;
@@ -681,15 +755,15 @@ public class Controller {
 
              } catch (Exception e) {
                  if (isDStore) {
-                     System.out.println("ERROR: DStore Disconnected!");
+                     logger.info("[System Error] DStore Disconnected! Port: "+ currentDStorePort);
+                     logger.info("[Controller] Current connected DStore: " + countDStore.get() + "/" + this.r);
                      dStoreConnections.remove(currentDStorePort);
                      countDStore.decrementAndGet();
                      if (countDStore.get() < this.r) {
                          dStoreReady.set(false);
                      }
                  }
-                 e.printStackTrace();
-                 System.out.println("Current connected DStore: " + countDStore.get() + "/" + this.r);
+                 logger.info(e.toString());
                  return;
              }
          }

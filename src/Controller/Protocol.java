@@ -1,4 +1,4 @@
-public class Protocal {
+public class Protocol {
     public static final String LIST_TOKEN = "LIST";
   
     public static final String STORE_TOKEN = "STORE";
