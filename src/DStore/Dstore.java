@@ -274,7 +274,7 @@ public class Dstore {
                     if(commandLine != null) {
                         String[] commands = commandLine.split(" ");
                         String command = commands[0].trim();
-                        System.out.println("[From Client]" + client.getPort() + ": " + commands);
+                       logger.info("[From Client]" + client.getPort() + ": " + commands);
                         
                         //COMMAND: STORE
                         if(command.equals(Protocol.STORE_TOKEN) || command.equals(Protocol.REBALANCE_STORE_TOKEN)) {
