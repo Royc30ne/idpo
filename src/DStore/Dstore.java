@@ -32,8 +32,6 @@ public class Dstore {
         this.timeout = timeout;
         this.file_folder = file_folder;
 
-        logger.setLevel(Level.ALL);
-
         //Check Duplication
         for(Handler h: logger.getHandlers()){
             h.close();
@@ -193,7 +191,7 @@ public class Dstore {
 
                                     for (int j = index + 2; j <= index + 1 + portSendCount; j++) {
 
-                                        Socket dStoreSocket = new Socket(InetAddress.getByName("localhost"),Integer.parseInt(commands[j]));
+                                        Socket dStoreSocket = new Socket(InetAddress.getByName("localhost"), Integer.parseInt(commands[j]));
                                         BufferedReader inDstore = new BufferedReader(new InputStreamReader(dStoreSocket.getInputStream()));
                                         PrintWriter outDstore = new PrintWriter(dStoreSocket.getOutputStream(), true);
                                         File existingFile = new File(filePath + File.separator + filename);
@@ -277,7 +275,7 @@ public class Dstore {
                        logger.info("[From Client]" + client.getPort() + ": " + commands);
                         
                         //COMMAND: STORE
-                        if(command.equals(Protocol.STORE_TOKEN) || command.equals(Protocol.REBALANCE_STORE_TOKEN)) {
+                        if(command.equals(Protocol.STORE_TOKEN)) {
                             //Receive STORE command from Client
                             if(commands.length != 3) {
                                 logger.info("Wrong STORE command");
@@ -295,10 +293,8 @@ public class Dstore {
                             var startTime = System.currentTimeMillis();
                             while(System.currentTimeMillis() <= startTime + timeout) {
                                 fos.write(writeStream.readNBytes(fileSize));
-                                if (command.equals(Protocol.STORE_TOKEN)) {
-                                    sendController.println(Protocol.STORE_ACK_TOKEN + " " + fileName);
-                                    logger.info("[" + port + " -> " + cport + "] " + Protocol.STORE_ACK_TOKEN + " " + fileName);
-                                }
+                                sendController.println(Protocol.STORE_ACK_TOKEN + " " + fileName);
+                                logger.info("[" + port + " -> " + cport + "] " + Protocol.STORE_ACK_TOKEN + " " + fileName);
                                 fileList.put(fileName, fileSize);
                                 break;
                             }
@@ -309,7 +305,27 @@ public class Dstore {
                             client.close();
                             return;
                         } 
-                        
+
+                        //COMMAND REBALANCE_STORE
+                        else if (command.equals(Protocol.REBALANCE_STORE_TOKEN)) {
+
+                            if (commands.length != 3) {
+                                logger.info("Wrong REBALANCE_STORE command");
+                                continue;
+                            }
+
+                            String fileName = commands[1].trim();
+                            sendClinet.println(Protocol.ACK_TOKEN);
+                            int filesize = Integer.parseInt(commands[2]);
+                            File outputFile = new File(filePath + File.separator + fileName);
+                            FileOutputStream fos = new FileOutputStream(outputFile);
+                            fos.write(writeStream.readNBytes(filesize));
+                            fos.flush();
+                            fos.close();
+                            client.close();
+                            return;
+                        }
+
                         //COMMAND: LOAD_DATA
                         else if(command.equals(Protocol.LOAD_DATA_TOKEN)) {
                             if(commands.length != 2) {

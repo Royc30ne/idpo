@@ -63,7 +63,6 @@ public class Controller {
         this.timeout = timeout;
         this.rebalanced_period = rebalanced_period;
 
-        logger.setLevel(Level.ALL);
 
         //Check Duplication
         for(Handler h: logger.getHandlers()){
